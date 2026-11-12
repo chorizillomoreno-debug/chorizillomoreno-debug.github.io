@@ -1,0 +1,57 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Don Doblon – Upload script · Don Doblón</title><style>body{font-family:system-ui,Arial,sans-serif;max-width:1000px;margin:24px auto;padding:0 20px;line-height:1.5;color:#222}
+header{display:flex;align-items:center;gap:16px}header img{width:56px;height:56px;border-radius:50%}h1{margin:0;font-size:26px}
+a{color:#b07a00}footer{margin-top:30px;font-size:.9em;color:#666}pre{background:#f6f4ef;border:1px solid #e2dccf;padding:14px;font-size:12.5px;line-height:1.35;overflow:auto}</style></head><body>
+<header><img src="logo.png" alt="Don Doblón"><h1>Don Doblon – Upload script</h1></header><p>Complete, working upload script (Python, google-api-python-client). Source: <a href="subida.py">subida.py</a>. It only ever acts on the owner's own channel.</p><pre>&quot;&quot;&quot;Don Doblon - complete upload script (used by the owner&#x27;s private GitHub Actions job).
+Uploads one finished Short to the OWNER&#x27;S OWN channel as private, with the AI disclosure,
+and after the owner approves it in Telegram, schedules it to go public.
+Credentials come from environment variables (encrypted GitHub Secrets).&quot;&quot;&quot;
+import os
+import sys
+
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+
+
+def youtube():
+    cred = Credentials(None, refresh_token=os.environ[&quot;YT_REFRESH_TOKEN&quot;],
+                       client_id=os.environ[&quot;YT_CLIENT_ID&quot;], client_secret=os.environ[&quot;YT_CLIENT_SECRET&quot;],
+                       token_uri=&quot;https://oauth2.googleapis.com/token&quot;)
+    return build(&quot;youtube&quot;, &quot;v3&quot;, credentials=cred, cache_discovery=False)
+
+
+def upload_private(path, title, description, tags):
+    body = {
+        &quot;snippet&quot;: {&quot;title&quot;: title[:100], &quot;description&quot;: description[:4900], &quot;tags&quot;: tags[:30],
+                    &quot;categoryId&quot;: &quot;27&quot;, &quot;defaultLanguage&quot;: &quot;es&quot;, &quot;defaultAudioLanguage&quot;: &quot;es&quot;},
+        &quot;status&quot;: {&quot;privacyStatus&quot;: &quot;private&quot;, &quot;selfDeclaredMadeForKids&quot;: False,
+                   &quot;containsSyntheticMedia&quot;: True},   # &quot;altered or synthetic content&quot; disclosure
+    }
+    req = youtube().videos().insert(part=&quot;snippet,status&quot;, body=body,
+                                    media_body=MediaFileUpload(path, chunksize=-1, resumable=True))
+    resp = None
+    while resp is None:
+        _, resp = req.next_chunk()
+    return resp[&quot;id&quot;]
+
+
+def schedule(video_id, publish_at_utc):
+    &quot;&quot;&quot;Called only after the owner presses Approve in Telegram.&quot;&quot;&quot;
+    status = {&quot;privacyStatus&quot;: &quot;private&quot;, &quot;publishAt&quot;: publish_at_utc,
+              &quot;selfDeclaredMadeForKids&quot;: False, &quot;containsSyntheticMedia&quot;: True}
+    youtube().videos().update(part=&quot;status&quot;, body={&quot;id&quot;: video_id, &quot;status&quot;: status}).execute()
+
+
+def discard(video_id):
+    &quot;&quot;&quot;Called when the owner presses Discard in Telegram.&quot;&quot;&quot;
+    youtube().videos().delete(id=video_id).execute()
+
+
+if __name__ == &quot;__main__&quot;:
+    # usage: python upload.py video.mp4 &quot;Title&quot; &quot;Description&quot; [2026-11-13T18:00:00Z]
+    vid = upload_private(sys.argv[1], sys.argv[2], sys.argv[3], [&quot;historias de negocios&quot;, &quot;shorts&quot;])
+    print(&quot;uploaded (private):&quot;, vid)
+    if len(sys.argv) &gt; 4:
+        schedule(vid, sys.argv[4])
+        print(&quot;scheduled for&quot;, sys.argv[4])
+</pre><footer><a href="index.html">Inicio</a> · <a href="privacidad.html">Política de privacidad</a> · <a href="condiciones.html">Condiciones del servicio</a> · <a href="arquitectura.html">Architecture</a> · <a href="flujo.html">User flow</a> · <a href="subida.html">Upload script</a></footer></body></html>
